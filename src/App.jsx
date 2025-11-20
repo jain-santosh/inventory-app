@@ -28,13 +28,13 @@ import {
 
 // --- Firebase Configuration ---
 const firebaseConfig = {
-  apiKey: "AIzaSyBy63f-nQa9PaYc_9gWSCH5wf7NhlgZbvk",
-  authDomain: "jewellery-inventory-app.firebaseapp.com",
-  projectId: "jewellery-inventory-app",
-  storageBucket: "jewellery-inventory-app.firebasestorage.app",
-  messagingSenderId: "803305655750",
-  appId: "1:803305655750:web:a84ef0a031fe3e99fb76c7",
-  measurementId: "G-XV6Z1JFT07"
+    apiKey: "AIzaSyBy63f-nQa9PaYc_9gWSCH5wf7NhlgZbvk",
+    authDomain: "jewellery-inventory-app.firebaseapp.com",
+    projectId: "jewellery-inventory-app",
+    storageBucket: "jewellery-inventory-app.firebasestorage.app",
+    messagingSenderId: "803305655750",
+    appId: "1:803305655750:web:a84ef0a031fe3e99fb76c7",
+    measurementId: "G-XV6Z1JFT07"
 };
 
 const appId = firebaseConfig.projectId || 'default-app-id';
@@ -1120,6 +1120,16 @@ function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, 
         }
     };
 
+    const handleDeletePO = async (poId) => {
+        if (!window.confirm("Are you sure you want to delete this Purchase Order?")) return;
+        try {
+            await deleteDoc(doc(db, purchaseOrdersCollectionPath, poId));
+        } catch (e) {
+            console.error("Error deleting PO:", e);
+            alert("Failed to delete PO.");
+        }
+    };
+
     const openEditPO = (po) => {
         setEditingPO(po);
         setIsEditingPO(true);
@@ -1285,7 +1295,7 @@ function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, 
                         {/* Supplier */}
                         <div className="sm:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
-                             <select
+                            <select
                                 name="supplierId"
                                 value={isEditingPO ? editingPO.supplierId : newPOData.supplierId}
                                 onChange={handlePOChange}
@@ -1305,7 +1315,6 @@ function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, 
                             value={isEditingPO ? editingPO.type : newPOData.type} 
                             onChange={handlePOChange} 
                             options={['Metal', 'Stone', 'Finished Goods']} 
-                            required 
                         />
                         
                         {/* Material Name (Dynamic) */}
@@ -1315,11 +1324,10 @@ function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, 
                             value={isEditingPO ? editingPO.materialName : newPOData.materialName} 
                             onChange={handlePOChange} 
                             options={availableMaterials} 
-                            required 
                         />
                         
                         <FormInput name="quantity" label="Quantity (g/ct/pcs)" type="number" value={isEditingPO ? editingPO.quantity : newPOData.quantity} onChange={handlePOChange} required />
-                        <FormInput name="date" label="Order Date" type="date" value={isEditingPO ? (editingPO.date.slice(0,10) || new Date().toISOString().slice(0, 10)) : newPOData.date} onChange={handlePOChange} required />
+                        <FormInput name="date" label="Order Date" type="date" value={isEditingPO ? (editingPO.date.slice(0,10) || new Date().toISOString().slice(0, 10)) : newPOData.date} onChange={handlePOChange} />
 
                         <div className="sm:col-span-1 flex items-end gap-2">
                             <button type="submit" className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
@@ -1367,7 +1375,7 @@ function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, 
                                             {po.status !== 'Completed' && (
                                                 <button 
                                                     onClick={() => handleUpdatePOStatus(po, 'Completed')} 
-                                                    className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded hover:bg-green-100 transition duration-150"
+                                                    className="text-xs bg-green-230 text-white-200 px-2 py-1 rounded bg-green-300 transition duration-150"
                                                     title="Mark Complete & Add to Inventory"
                                                 >
                                                     Receive
@@ -1379,6 +1387,15 @@ function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, 
                                                 title="Edit Purchase Order"
                                             >
                                                 <IconPencil />
+                                            </button>
+
+                                            {/*New Delete Button */}
+                                            <button 
+                                                onClick={() => handleDeletePO(po.id)} 
+                                                className="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-50"
+                                                title="Delete Purchase Order"
+                                            >
+                                                <IconTrash />
                                             </button>
                                         </td>
                                     </tr>
@@ -2569,7 +2586,7 @@ function ItemForm({ item, categories, metalConfig, metalCategoryMap, onSave, onC
                                     <FormInput name="stoneValue" label="Stones ($)" type="number" value={metal.stoneValue} onChange={(e) => handleMetalChange(index, e)} />
                                     
                                     <div className="col-span-2 sm:col-span-1 flex justify-end sm:justify-center items-end pb-1">
-                                         <button
+                                        <button
                                             type="button"
                                             onClick={() => removeMetal(index)}
                                             className="text-red-600 hover:text-red-800 p-2 disabled:opacity-50"
