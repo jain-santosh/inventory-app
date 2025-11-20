@@ -177,7 +177,6 @@ const STATUS_OPTIONS = ['In Stock', 'Sold', 'Reserved', 'In Repair'];
 const ROLES = {
     ADMIN: 'Admin',
     MANAGER: 'Manager',
-    STAFF: 'Staff'
 };
 
 // --- Utility Functions ---
@@ -1323,7 +1322,7 @@ function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, 
                             label={`Material Name (${(isEditingPO ? editingPO.type : newPOData.type) === 'Finished Goods' ? 'Category' : (isEditingPO ? editingPO.type : newPOData.type)})`} 
                             value={isEditingPO ? editingPO.materialName : newPOData.materialName} 
                             onChange={handlePOChange} 
-                            options={availableMaterials} 
+                            options={["", ...availableMaterials]} 
                         />
                         
                         <FormInput name="quantity" label="Quantity (g/ct/pcs)" type="number" value={isEditingPO ? editingPO.quantity : newPOData.quantity} onChange={handlePOChange} required />
