@@ -6,7 +6,7 @@ import {
     onAuthStateChanged,
     signOut,
     createUserWithEmailAndPassword, // NEW
-    signInWithEmailAndPassword      // NEW
+    signInWithEmailAndPassword       // NEW
 } from 'firebase/auth';
 import { 
     getFirestore, 
@@ -90,6 +90,15 @@ const DEFAULT_METAL_CATEGORY_MAP = {
 };
 
 const DEFAULT_METAL_RATES = { 'Gold': 65.00, 'Platinum': 35.00, 'Silver': 0.80, 'White Gold': 60.00 };
+// START CODE MERGE - STEP 1 (Default value for making charges per metal)
+const DEFAULT_MAKING_CHARGES_PER_METAL = { 
+    'Gold': 200, 
+    'Silver': 20, 
+    'Platinum': 300, 
+    "White Gold": 220 
+};
+// END CODE MERGE
+
 const DEFAULT_TAX_RATE = 5; 
 const STONE_TYPES = ['Diamond', 'Ruby', 'Emerald', 'Sapphire', 'Other'];
 const STONE_CUTS = ['Round', 'Princess', 'Emerald', 'Oval', 'Marquise', 'Pear', 'Other'];
@@ -99,19 +108,31 @@ const STATUS_OPTIONS = ['In Stock', 'Sold', 'Reserved', 'In Repair'];
 const ROLES = { ADMIN: 'Admin', MANAGER: 'Manager', STAFF: 'Staff' };
 
 // --- Utility Functions ---
-function calculateBaseValue(item, metalRates) {
+// START CODE MERGE - STEP 6 (Update Price Calculation)
+function calculateBaseValue(item, metalRates, makingChargesPerMetal) {
     let baseValue = 0;
+    let totalMakingCharges = 0; // Initialize total making charges
+    
     if (item && item.metals && metalRates) {
         item.metals.forEach(metal => {
             const netWeight = parseFloat(metal.netWeight || 0);
             const rate = parseFloat(metalRates[metal.type] || 0);
             baseValue += netWeight * rate;
+            
+            // Apply metal-wise making charge
+            const mcPerMetal = parseFloat(makingChargesPerMetal[metal.type] || 0);
+            totalMakingCharges += (netWeight * mcPerMetal) || 0;
         });
     }
-    baseValue += parseFloat(item.makingCharges || 0);
+
+    // baseValue now includes metal cost + metal-wise making charges
+    baseValue += totalMakingCharges;
+    
+    // Add flat making charges and stone value (if they exist outside the metal-wise model)
     baseValue += parseFloat(item.stoneValue || 0);
     return baseValue;
 }
+// END CODE MERGE
 
 // --- Reusable Components ---
 function LoadingSpinner({ message }) {
@@ -182,6 +203,7 @@ function PriceRow({ label, value, isFinal = false, isBase = false }) {
 // --- Login View Component (NEW) ---
 
 function LoginView({ onAuthSuccess }) {
+    // ... (LoginView component remains unchanged)
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [isLoginMode, setIsLoginMode] = useState(true);
@@ -203,9 +225,9 @@ function LoginView({ onAuthSuccess }) {
         } catch (e) {
             console.error("Auth Failed:", e);
             const msg = e.code.includes('email-already-in-use') ? 'Email already registered. Try logging in.' :
-                        e.code.includes('wrong-password') ? 'Invalid credentials.' :
-                        e.code.includes('user-not-found') ? 'User not found. Try signing up.' :
-                        'Authentication failed. Check your network or credentials.';
+                         e.code.includes('wrong-password') ? 'Invalid credentials.' :
+                         e.code.includes('user-not-found') ? 'User not found. Try signing up.' :
+                         'Authentication failed. Check your network or credentials.';
             setError(msg);
         } finally {
             setIsSubmitting(false);
@@ -282,6 +304,9 @@ const App = () => {
     const [metalCategoryMap, setMetalCategoryMap] = useState(DEFAULT_METAL_CATEGORY_MAP);
     const [metalRates, setMetalRates] = useState(DEFAULT_METAL_RATES);
     const [taxRate, setTaxRate] = useState(DEFAULT_TAX_RATE);
+    // START CODE MERGE - STEP 2 (Add makingChargesPerMetal State Variable)
+    const [makingChargesPerMetal, setMakingChargesPerMetal] = useState({});
+    // END CODE MERGE
     
     const [isLoading, setIsLoading] = useState(true);
     const [showForm, setShowForm] = useState(false);
@@ -440,12 +465,22 @@ const App = () => {
                 const data = docSnapshot.data();
                 setMetalRates(data.metalRates || DEFAULT_METAL_RATES);
                 setTaxRate(data.taxRate || DEFAULT_TAX_RATE);
+                // START CODE MERGE - STEP 3 (Fetch makingChargesPerMetal from Firestore)
+                setMakingChargesPerMetal(data.makingChargesPerMetal || DEFAULT_MAKING_CHARGES_PER_METAL);
+                // END CODE MERGE
             } else {
                  try {
-                     await setDoc(ratesDocRef, { metalRates: DEFAULT_METAL_RATES, taxRate: DEFAULT_TAX_RATE });
+                     // START CODE MERGE - STEP 1 (Update default structure on creation)
+                     await setDoc(ratesDocRef, { 
+                         metalRates: DEFAULT_METAL_RATES, 
+                         taxRate: DEFAULT_TAX_RATE,
+                         makingChargesPerMetal: DEFAULT_MAKING_CHARGES_PER_METAL 
+                     });
+                     // END CODE MERGE
                 } catch (e) {}
                 setMetalRates(DEFAULT_METAL_RATES);
                 setTaxRate(DEFAULT_TAX_RATE);
+                setMakingChargesPerMetal(DEFAULT_MAKING_CHARGES_PER_METAL);
             }
         }, (error) => {});
 
@@ -538,6 +573,7 @@ const App = () => {
         }
 
         if (!userId || !itemId) return;
+        // NOTE: window.confirm is used here, which should be replaced by a custom modal in a full production app.
         if (window.confirm("Are you sure you want to delete this item? This cannot be undone.")) {
             try {
                 await deleteDoc(doc(db, inventoryCollectionPath, itemId));
@@ -886,6 +922,8 @@ const App = () => {
                         items={inventory} 
                         metalRates={metalRates}
                         taxRate={taxRate}
+                        // Pass new prop
+                        makingChargesPerMetal={makingChargesPerMetal} 
                         onSaleComplete={handleSaleComplete}
                     />
                 ) : activeTab === 'settings' ? (
@@ -895,10 +933,15 @@ const App = () => {
                         metalCategoryMap={metalCategoryMap}
                         metalRates={metalRates}
                         taxRate={taxRate}
+                        // Pass new prop
+                        makingChargesPerMetal={makingChargesPerMetal} 
                         publicDataPath={publicDataPath}
                     />
                 ) : activeTab === 'users' && userRole === ROLES.ADMIN ? (
-                    <UserManagementView usersCollectionPath={usersCollectionPath} />
+                    <UserManagementView 
+                        usersCollectionPath={usersCollectionPath} 
+                        currentUserId={userId} // Pass current user ID for self-deletion check
+                    />
                 ) : activeTab === 'suppliers' && (userRole === ROLES.ADMIN || userRole === ROLES.MANAGER) ? (
                     <SuppliersView 
                         suppliersCollectionPath={suppliersCollectionPath} 
@@ -928,6 +971,8 @@ const App = () => {
                     categories={categories}
                     metalConfig={metalConfig}
                     metalCategoryMap={metalCategoryMap}
+                    // Pass new prop
+                    makingChargesPerMetal={makingChargesPerMetal}
                     onSave={handleFormSave}
                     onClose={closeForm}
                 />
@@ -939,6 +984,7 @@ const App = () => {
 // --- Component Definitions (omitted for brevity, defined in file structure) ---
 
 function InventoryList({ items, onDelete, onEdit, userRole }) {
+    // ... (InventoryList component remains largely unchanged)
     if (items.length === 0) {
         return <div className="text-center p-12 bg-white rounded-lg shadow text-gray-500"><h3 className="text-xl font-medium">No inventory items found.</h3><p className="mt-2">Click "Add Item" to get started.</p></div>;
     }
@@ -978,11 +1024,22 @@ function InventoryList({ items, onDelete, onEdit, userRole }) {
     );
 }
 
-const ItemForm = ({ item, categories, metalConfig, metalCategoryMap, onSave, onClose }) => { 
+// Pass new prop
+const ItemForm = ({ item, categories, metalConfig, metalCategoryMap, makingChargesPerMetal, onSave, onClose }) => { 
     const initialMetalType = (item?.metals?.[0]?.type || Object.keys(metalConfig)[0] || 'Gold');
-    const defaultState = useMemo(() => ({ id: null, name: '', sku: '', huid: '', category: '', status: STATUS_OPTIONS[0], imageUrl: '', metals: [{ type: initialMetalType, purity: '', netWeight: 0, grossWeight: 0, makingCharges: 0, stoneValue: 0 }], stones: [] }), [initialMetalType]);
+    // Removed makingCharges and stoneValue default from metal object, as they will be calculated on metal change, not stored in a new item object
+    const defaultState = useMemo(() => ({ id: null, name: '', sku: '', huid: '', category: '', status: STATUS_OPTIONS[0], imageUrl: '', metals: [{ type: initialMetalType, purity: '', netWeight: 0, grossWeight: 0 }], stones: [] }), [initialMetalType]);
     if (defaultState.metals[0].type && metalConfig[defaultState.metals[0].type]) { defaultState.metals[0].purity = metalConfig[defaultState.metals[0].type][0] || ''; }
-    const [formData, setFormData] = useState(defaultState);
+    
+    // Adjusted initial state logic for existing items to match new structure
+    const [formData, setFormData] = useState(() => {
+        if (item) {
+            // Remove legacy metal.makingCharges and metal.stoneValue, as the ItemForm no longer tracks them there.
+            const updatedMetals = item.metals?.map(({ makingCharges, stoneValue, ...m }) => ({ ...m })) || defaultState.metals; 
+            return { ...defaultState, ...item, id: item.id, metals: updatedMetals };
+        }
+        return defaultState;
+    });
 
     const availableCategories = useMemo(() => {
         const primaryMetal = formData.metals[0]?.type;
@@ -992,8 +1049,11 @@ const ItemForm = ({ item, categories, metalConfig, metalCategoryMap, onSave, onC
     }, [formData.metals, metalCategoryMap, categories]);
 
     useEffect(() => {
+        // Re-run this effect when `item` changes (e.g., when opening the modal)
         if (item) {
-            const updatedMetals = item.metals?.map(m => ({ ...m, makingCharges: parseFloat(m.makingCharges || 0), stoneValue: parseFloat(m.stoneValue || 0) })) || defaultState.metals;
+            // Ensure any old `makingCharges` is preserved as a *flat* charge on the main object
+            // and that metal objects are cleaned of old, pre-metal-wise fields
+            const updatedMetals = item.metals?.map(({ makingCharges, stoneValue, ...m }) => ({ ...m })) || defaultState.metals; 
             setFormData({ ...defaultState, ...item, id: item.id, metals: updatedMetals });
         } else { setFormData(defaultState); }
         setImagePreview(item?.imageUrl || null); setImageFile(null);
@@ -1016,12 +1076,17 @@ const ItemForm = ({ item, categories, metalConfig, metalCategoryMap, onSave, onC
         const { name, value } = e.target;
         const newMetals = [...formData.metals];
         let newValue = value;
-        if (name === 'makingCharges' || name === 'stoneValue' || name === 'netWeight' || name === 'grossWeight') { newValue = parseFloat(value) || 0; }
+        if (name === 'netWeight' || name === 'grossWeight') { newValue = parseFloat(value) || 0; }
+        
         newMetals[index] = { ...newMetals[index], [name]: newValue };
-        if (name === 'type') { newMetals[index].purity = metalConfig[value]?.[0] || ''; }
+        
+        if (name === 'type') { 
+            newMetals[index].purity = metalConfig[value]?.[0] || '';
+        }
         setFormData(prev => ({ ...prev, metals: newMetals }));
     };
-    const addMetal = () => { const firstMetal = Object.keys(metalConfig)[0] || 'Gold'; setFormData(prev => ({ ...prev, metals: [...prev.metals, { type: firstMetal, purity: metalConfig[firstMetal]?.[0] || '', netWeight: 0, grossWeight: 0, makingCharges: 0, stoneValue: 0 }] })); };
+    // Removed makingCharges & stoneValue fields from default metal object
+    const addMetal = () => { const firstMetal = Object.keys(metalConfig)[0] || 'Gold'; setFormData(prev => ({ ...prev, metals: [...prev.metals, { type: firstMetal, purity: metalConfig[firstMetal]?.[0] || '', netWeight: 0, grossWeight: 0 }] })); };
     const removeMetal = (index) => { setFormData(prev => ({ ...prev, metals: prev.metals.filter((_, i) => i !== index) })); };
     const handleStoneChange = (index, e) => { const { name, value } = e.target; const newStones = [...formData.stones]; newStones[index] = { ...newStones[index], [name]: value }; setFormData(prev => ({ ...prev, stones: newStones })); };
     const addStone = () => { setFormData(prev => ({ ...prev, stones: [...prev.stones, { type: STONE_TYPES[0], carat: '', cut: STONE_CUTS[0], color: STONE_COLORS[0], clarity: STONE_CLARITIES[0] }] })); };
@@ -1060,6 +1125,7 @@ const ItemForm = ({ item, categories, metalConfig, metalCategoryMap, onSave, onC
 };
 
 function StockReport({ items, metalConfig }) {
+    // ... (StockReport component remains largely unchanged)
     const stats = useMemo(() => {
         const result = { totalItems: 0, metals: {}, groupedStock: {} };
         items.forEach(item => {
@@ -1125,26 +1191,55 @@ function StockReport({ items, metalConfig }) {
     );
 }
 
-function POSView({ items, metalRates, taxRate, onSaleComplete }) {
+// Pass new prop
+function POSView({ items, metalRates, taxRate, makingChargesPerMetal, onSaleComplete }) {
     const availableItems = items.filter(item => item.status === 'In Stock');
     const [selectedItemId, setSelectedItemId] = useState('');
     const [discountPct, setDiscountPct] = useState(0);
     const selectedItem = availableItems.find(i => i.id === selectedItemId);
+    
+    // Total Metal Cost + Total Metal-wise Making Charges + Stone Value
     const baseValue = useMemo(() => {
         if (!selectedItem) return 0;
-        return calculateBaseValue(selectedItem, metalRates);
+        // Updated to use the new calculateBaseValue that includes metal-wise MC
+        return calculateBaseValue(selectedItem, metalRates, makingChargesPerMetal);
+    }, [selectedItem, metalRates, makingChargesPerMetal]); 
+
+    // Calculate total making charges from the new model for display purposes
+    const makingChargesTotal = useMemo(() => {
+        if (!selectedItem) return 0;
+        // START CODE MERGE - STEP 7 (POS Auto Price Update for Display)
+        let totalMC = selectedItem.metals.reduce((t, m) => {
+            const netWeight = parseFloat(m.netWeight || 0);
+            const mcPerMetal = parseFloat(makingChargesPerMetal[m.type] || 0);
+            return t + (netWeight * mcPerMetal) || 0;
+        }, 0);
+        
+        // Include standalone stone value if present
+        totalMC += parseFloat(selectedItem.stoneValue || 0);
+        return totalMC;
+        // END CODE MERGE
+    }, [selectedItem, makingChargesPerMetal]);
+
+    const metalValue = useMemo(() => {
+        if (!selectedItem) return 0;
+        return selectedItem.metals.reduce((t, m) => t + (parseFloat(m.netWeight || 0) * parseFloat(metalRates[m.type] || 0)), 0);
     }, [selectedItem, metalRates]);
-    const subtotal = baseValue;
+
+
+    const subtotal = baseValue; // BaseValue now contains everything before tax/discount
     const discountAmount = subtotal * (discountPct / 100);
     const taxableBase = subtotal - discountAmount;
     const taxAmount = taxableBase * (taxRate / 100);
     const finalPrice = taxableBase + taxAmount;
+    
     const handleCompleteSale = () => {
         if (!selectedItem) { alert('Please select an item for sale.'); return; }
         onSaleComplete(selectedItemId, finalPrice, discountPct, taxAmount);
         setSelectedItemId(''); setDiscountPct(0);
     };
     const handleReset = () => { setSelectedItemId(''); setDiscountPct(0); };
+    
     return (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2 space-y-4">
@@ -1175,8 +1270,9 @@ function POSView({ items, metalRates, taxRate, onSaleComplete }) {
                 <div className="bg-blue-50 p-6 rounded-xl shadow-lg border border-blue-200 sticky top-20 space-y-4">
                     <h3 className="text-xl font-bold text-blue-800 border-b border-blue-300 pb-3">Checkout</h3>
                     <div className="space-y-2 text-sm">
-                        <PriceRow label="Base Material Value" value={baseValue} isBase />
-                        <PriceRow label="Making Charges" value={selectedItem ? (parseFloat(selectedItem.makingCharges || 0) + parseFloat(selectedItem.stoneValue || 0)) : 0} />
+                        <PriceRow label="Metal Value" value={metalValue} isBase />
+                        {/* Updated calculation to use makingChargesTotal derived from metal-wise MC */}
+                        <PriceRow label="Making Charges + Stones" value={makingChargesTotal} /> 
                         <div className="h-px bg-gray-200 my-3"></div>
                         <PriceRow label="Subtotal" value={subtotal} />
                     </div>
@@ -1200,6 +1296,7 @@ function POSView({ items, metalRates, taxRate, onSaleComplete }) {
 }
 
 function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, metalConfig, categories, openItemForm }) {
+    // ... (SuppliersView component remains largely unchanged)
     const [suppliers, setSuppliers] = useState([]);
     const [purchaseOrders, setPurchaseOrders] = useState([]);
     const [newSupplierName, setNewSupplierName] = useState('');
@@ -1304,6 +1401,9 @@ function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, 
             category: po.type === 'Metal' ? 'Raw Metal' : po.type === 'Stone' ? 'Loose Stone' : po.materialName,
             status: 'In Stock',
             imageUrl: '',
+            // No making charges on raw material/new stock item
+            makingCharges: 0, 
+            stoneValue: 0
         };
         if (po.type === 'Metal') {
             baseItem.metals = [{ type: po.materialName, purity: metalConfig[po.materialName]?.[0] || '', netWeight: po.quantity.toFixed(2), grossWeight: po.quantity.toFixed(2) }];
@@ -1356,7 +1456,7 @@ function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, 
                         <div className="sm:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
                              <select name="supplierId" value={isEditingPO ? editingPO.supplierId : newPOData.supplierId} onChange={handlePOChange} required className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 bg-white">
-                                {suppliers.map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}
+                                 {suppliers.map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}
                             </select>
                         </div>
                         <FormSelect name="type" label="PO Type" value={isEditingPO ? editingPO.type : newPOData.type} onChange={handlePOChange} options={['Metal', 'Stone', 'Finished Goods']} required />
@@ -1405,7 +1505,8 @@ function SuppliersView({ suppliersCollectionPath, purchaseOrdersCollectionPath, 
     );
 }
 
-function UserManagementView({ usersCollectionPath }) {
+// Added currentUserId prop
+function UserManagementView({ usersCollectionPath, currentUserId }) {
     const [users, setUsers] = useState([]);
     useEffect(() => {
         const q = query(collection(db, usersCollectionPath));
@@ -1421,6 +1522,23 @@ function UserManagementView({ usersCollectionPath }) {
             try { await setDoc(doc(db, usersCollectionPath, userId), { role: newRole }, { merge: true }); } catch(e) { console.error("Error updating role:", e); alert("Failed to update role."); }
         }
     };
+
+    // NEW: Handle user deletion
+    const handleDeleteUser = async (userToDelete) => {
+        if (userToDelete.id === currentUserId) {
+            alert("You cannot delete your own user account from this interface.");
+            return;
+        }
+
+        if (window.confirm(`Are you sure you want to delete the user "${userToDelete.name || userToDelete.email || userToDelete.id}"? This will permanently remove them from the system.`)) {
+            try {
+                await deleteDoc(doc(db, usersCollectionPath, userToDelete.id));
+            } catch(e) { 
+                console.error("Error deleting user:", e); 
+                alert("Failed to delete user: " + e.message); 
+            }
+        }
+    };
     
     const RoleBadge = ({ role }) => <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${role === ROLES.ADMIN ? 'bg-purple-100 text-purple-800' : role === ROLES.MANAGER ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>{role}</span>;
     const RoleSelector = ({ user }) => <select value={user.role} onChange={(e) => handleChangeRole(user.id, e.target.value)} className="text-sm border-gray-300 rounded-md shadow-sm focus:border-indigo-500 focus:ring focus:ring-indigo-200 focus:ring-opacity-50"><option value={ROLES.ADMIN}>Admin</option><option value={ROLES.MANAGER}>Manager</option><option value={ROLES.STAFF}>Staff</option></select>;
@@ -1429,21 +1547,55 @@ function UserManagementView({ usersCollectionPath }) {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 bg-gray-50"><h3 className="text-lg font-medium text-gray-900">User Management</h3><p className="text-sm text-gray-500">Manage staff roles and permissions.</p></div>
             <div className="sm:hidden p-4 space-y-4">
-                {users.map(user => (
-                    <div key={user.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 space-y-3">
-                        <div className="flex justify-between items-center border-b pb-2"><div className="text-sm font-medium text-gray-900">{user.name || 'Unknown User'}</div><RoleBadge role={user.role} /></div>
-                        <div className="flex justify-between items-center text-sm text-gray-500"><span>ID: <span className="font-mono text-xs">{user.id}</span></span></div>
-                        <div className="flex justify-between items-center"><span className="text-sm text-gray-500">Joined: {user.joinedAt ? new Date(user.joinedAt).toLocaleDateString() : '-'}</span><RoleSelector user={user} /></div>
-                    </div>
-                ))}
+                {users.map(user => {
+                    const isCurrentUser = user.id === currentUserId;
+                    return (
+                        <div key={user.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 space-y-3">
+                            <div className="flex justify-between items-center border-b pb-2">
+                                <div className="text-sm font-medium text-gray-900">{user.name || 'Unknown User'} {isCurrentUser && <span className="text-xs text-blue-500">(You)</span>}</div>
+                                <RoleBadge role={user.role} />
+                            </div>
+                            <div className="flex justify-between items-center text-sm text-gray-500"><span>ID: <span className="font-mono text-xs">{user.id}</span></span></div>
+                            <div className="flex justify-between items-center">
+                                <RoleSelector user={user} />
+                                <button
+                                    onClick={() => handleDeleteUser(user)}
+                                    disabled={isCurrentUser}
+                                    title={isCurrentUser ? "Cannot delete yourself" : "Delete User"}
+                                    className={`p-2 rounded-full transition duration-150 ${isCurrentUser ? 'text-gray-400 cursor-not-allowed' : 'text-red-600 hover:text-red-800 hover:bg-red-50'}`}
+                                >
+                                    <IconTrash />
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
             <div className="hidden sm:block overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name / ID</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th><th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th></tr></thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                        {users.map((user) => (
-                            <tr key={user.id}><td className="px-6 py-4 whitespace-nowrap"><div className="text-sm font-medium text-gray-900">{user.name || 'Unknown User'}</div><div className="text-xs text-gray-500 font-mono">{user.id}</div></td><td className="px-6 py-4 whitespace-nowrap"><RoleBadge role={user.role} /></td><td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.joinedAt ? new Date(user.joinedAt).toLocaleDateString() : '-'}</td><td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium"><RoleSelector user={user} /></td></tr>
-                        ))}
+                        {users.map((user) => {
+                            const isCurrentUser = user.id === currentUserId;
+                            return (
+                                <tr key={user.id}>
+                                    <td className="px-6 py-4 whitespace-nowrap"><div className="text-sm font-medium text-gray-900">{user.name || 'Unknown User'} {isCurrentUser && <span className="text-xs text-blue-500">(You)</span>}</div><div className="text-xs text-gray-500 font-mono">{user.id}</div></td>
+                                    <td className="px-6 py-4 whitespace-nowrap"><RoleBadge role={user.role} /></td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.joinedAt ? new Date(user.joinedAt).toLocaleDateString() : '-'}</td>
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium flex justify-end items-center gap-4">
+                                        <RoleSelector user={user} />
+                                        <button
+                                            onClick={() => handleDeleteUser(user)}
+                                            disabled={isCurrentUser}
+                                            title={isCurrentUser ? "Cannot delete yourself" : "Delete User"}
+                                            className={`transition duration-150 p-2 rounded-full ${isCurrentUser ? 'text-gray-400 cursor-not-allowed' : 'text-red-600 hover:text-red-900 hover:bg-red-50'}`}
+                                        >
+                                            <IconTrash />
+                                        </button>
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
@@ -1451,7 +1603,7 @@ function UserManagementView({ usersCollectionPath }) {
     );
 }
 
-function SettingsView({ categories, metalConfig, metalCategoryMap, metalRates, taxRate, publicDataPath }) {
+function SettingsView({ categories, metalConfig, metalCategoryMap, metalRates, taxRate, makingChargesPerMetal, publicDataPath }) {
     const [newCategory, setNewCategory] = useState("");
     const [newMetal, setNewMetal] = useState("");
     const [newPurity, setNewPurity] = useState("");
@@ -1459,18 +1611,95 @@ function SettingsView({ categories, metalConfig, metalCategoryMap, metalRates, t
     const [selectedMetalForMapping, setSelectedMetalForMapping] = useState(Object.keys(metalCategoryMap)[0] || Object.keys(metalConfig)[0] || "");
     const [localMetalRates, setLocalMetalRates] = useState(metalRates);
     const [localTaxRate, setLocalTaxRate] = useState(taxRate);
+    // START CODE MERGE - STEP 2/3 (Local state for Making Charges per Metal)
+    const [localMakingChargesPerMetal, setLocalMakingChargesPerMetal] = useState(makingChargesPerMetal);
+    // END CODE MERGE
 
+    // Update local state when parent props change
     useEffect(() => { setLocalMetalRates(metalRates); setLocalTaxRate(taxRate); }, [metalRates, taxRate]);
+    // START CODE MERGE - STEP 2/3 (Update local making charges when parent prop changes)
+    useEffect(() => { setLocalMakingChargesPerMetal(makingChargesPerMetal); }, [makingChargesPerMetal]);
+    // END CODE MERGE
 
     const handleMetalRateChange = (metalType, value) => { setLocalMetalRates(prev => ({ ...prev, [metalType]: parseFloat(value) || 0 })); };
     const handleTaxRateChange = (e) => { setLocalTaxRate(parseFloat(e.target.value) || 0); };
-    const handleSaveGlobalRates = async () => { try { await setDoc(doc(db, `${publicDataPath}/settings`, 'globalRates'), { metalRates: localMetalRates, taxRate: localTaxRate }); alert("Global rates updated successfully!"); } catch(e) { console.error("Error saving global rates:", e); alert("Failed to save global rates."); } };
+    
+    // START CODE MERGE - STEP 4 (Add handler for Making Charges update)
+    const handleUpdateMC = (metal, value) => {
+         const updated = {...localMakingChargesPerMetal, [metal]: parseFloat(value) || 0};
+         setLocalMakingChargesPerMetal(updated);
+    };
+    // END CODE MERGE
+
+    // START CODE MERGE - STEP 4 (Update save handler for global rates)
+    const handleSaveGlobalRates = async () => { 
+        try { 
+            await setDoc(doc(db, `${publicDataPath}/settings`, 'globalRates'), { 
+                metalRates: localMetalRates, 
+                taxRate: localTaxRate,
+                makingChargesPerMetal: localMakingChargesPerMetal // Save new field
+            }); 
+            alert("Global rates updated successfully!"); 
+        } catch(e) { 
+            console.error("Error saving global rates:", e); 
+            alert("Failed to save global rates."); 
+        } 
+    };
+    // END CODE MERGE
 
     const handleAddCategory = async (e) => { e.preventDefault(); if (!newCategory.trim()) return; try { await setDoc(doc(db, `${publicDataPath}/categories`, newCategory.trim()), { name: newCategory.trim() }); setNewCategory(""); } catch(e) { console.error(e); alert("Error adding category"); } };
     const handleDeleteCategory = async (catName) => { if(window.confirm(`Delete category "${catName}"?`)) { try { await deleteDoc(doc(db, `${publicDataPath}/categories`, catName)); const updatedMap = { ...metalCategoryMap }; Object.keys(updatedMap).forEach(metal => { updatedMap[metal] = updatedMap[metal].filter(c => c !== catName); }); await setDoc(doc(db, `${publicDataPath}/settings`, 'metalCategoryMap'), updatedMap); } catch(e) { console.error(e); alert("Error deleting category"); } } };
 
-    const handleAddMetal = async (e) => { e.preventDefault(); if (!newMetal.trim()) return; const metalName = newMetal.trim(); const updatedConfig = { ...metalConfig, [metalName]: [] }; const updatedMap = { ...metalCategoryMap, [metalName]: [] }; const updatedRates = { ...localMetalRates, [metalName]: 0 }; try { await setDoc(doc(db, `${publicDataPath}/settings`, 'metals'), updatedConfig); await setDoc(doc(db, `${publicDataPath}/settings`, 'metalCategoryMap'), updatedMap); await setDoc(doc(db, `${publicDataPath}/settings`, 'globalRates'), { metalRates: updatedRates, taxRate: localTaxRate }); setNewMetal(""); setSelectedMetalForPurity(metalName); setSelectedMetalForMapping(metalName); } catch(e) { console.error(e); alert("Error adding metal"); } };
-    const handleDeleteMetal = async (metalName) => { if(window.confirm(`Delete Metal "${metalName}"?`)) { const updatedConfig = { ...metalConfig }; delete updatedConfig[metalName]; const updatedMap = { ...metalCategoryMap }; delete updatedMap[metalName]; const updatedRates = { ...localMetalRates }; delete updatedRates[metalName]; try { await setDoc(doc(db, `${publicDataPath}/settings`, 'metals'), updatedConfig); await setDoc(doc(db, `${publicDataPath}/settings`, 'metalCategoryMap'), updatedMap); await setDoc(doc(db, `${publicDataPath}/settings`, 'globalRates'), { metalRates: updatedRates, taxRate: localTaxRate }); const remainingMetals = Object.keys(updatedConfig); if (selectedMetalForPurity === metalName) setSelectedMetalForPurity(remainingMetals[0] || ""); if (selectedMetalForMapping === metalName) setSelectedMetalForMapping(remainingMetals[0] || ""); } catch(e) { console.error(e); alert("Error deleting metal"); } } };
+    const handleAddMetal = async (e) => { 
+        e.preventDefault(); 
+        if (!newMetal.trim()) return; 
+        const metalName = newMetal.trim(); 
+        const updatedConfig = { ...metalConfig, [metalName]: [] }; 
+        const updatedMap = { ...metalCategoryMap, [metalName]: [] }; 
+        const updatedRates = { ...localMetalRates, [metalName]: 0 }; 
+        // Add default making charge for new metal
+        const updatedMC = { ...localMakingChargesPerMetal, [metalName]: 0 }; 
+        
+        try { 
+            await setDoc(doc(db, `${publicDataPath}/settings`, 'metals'), updatedConfig); 
+            await setDoc(doc(db, `${publicDataPath}/settings`, 'metalCategoryMap'), updatedMap); 
+            await setDoc(doc(db, `${publicDataPath}/settings`, 'globalRates'), { 
+                metalRates: updatedRates, 
+                taxRate: localTaxRate,
+                makingChargesPerMetal: updatedMC // Save new MC field
+            }); 
+            setNewMetal(""); 
+            setSelectedMetalForPurity(metalName); 
+            setSelectedMetalForMapping(metalName); 
+            // Update local state after successful save
+            setLocalMakingChargesPerMetal(updatedMC); 
+        } catch(e) { console.error(e); alert("Error adding metal"); } 
+    };
+    
+    const handleDeleteMetal = async (metalName) => { 
+        if(window.confirm(`Delete Metal "${metalName}"?`)) { 
+            const updatedConfig = { ...metalConfig }; delete updatedConfig[metalName]; 
+            const updatedMap = { ...metalCategoryMap }; delete updatedMap[metalName]; 
+            const updatedRates = { ...localMetalRates }; delete updatedRates[metalName]; 
+            // Remove making charge for deleted metal
+            const updatedMC = { ...localMakingChargesPerMetal }; delete updatedMC[metalName];
+            
+            try { 
+                await setDoc(doc(db, `${publicDataPath}/settings`, 'metals'), updatedConfig); 
+                await setDoc(doc(db, `${publicDataPath}/settings`, 'metalCategoryMap'), updatedMap); 
+                await setDoc(doc(db, `${publicDataPath}/settings`, 'globalRates'), { 
+                    metalRates: updatedRates, 
+                    taxRate: localTaxRate,
+                    makingChargesPerMetal: updatedMC // Save updated MC field
+                }); 
+                const remainingMetals = Object.keys(updatedConfig); 
+                if (selectedMetalForPurity === metalName) setSelectedMetalForPurity(remainingMetals[0] || ""); 
+                if (selectedMetalForMapping === metalName) setSelectedMetalForMapping(remainingMetals[0] || "");
+                // Update local state after successful save
+                setLocalMakingChargesPerMetal(updatedMC); 
+            } catch(e) { console.error(e); alert("Error deleting metal"); } 
+        } 
+    };
 
     const handleAddPurity = async (e) => { e.preventDefault(); if (!newPurity.trim() || !selectedMetalForPurity) return; const currentPurities = metalConfig[selectedMetalForPurity] || []; if (currentPurities.includes(newPurity.trim())) return; const updatedConfig = { ...metalConfig, [selectedMetalForPurity]: [...currentPurities, newPurity.trim()] }; try { await setDoc(doc(db, `${publicDataPath}/settings`, 'metals'), updatedConfig); setNewPurity(""); } catch(e) { console.error(e); alert("Error adding purity"); } };
     const handleDeletePurity = async (metal, purity) => { if(window.confirm(`Remove purity "${purity}"?`)) { const currentPurities = metalConfig[metal]; const updatedConfig = { ...metalConfig, [metal]: currentPurities.filter(p => p !== purity) }; try { await setDoc(doc(db, `${publicDataPath}/settings`, 'metals'), updatedConfig); } catch(e) { console.error(e); alert("Error removing purity"); } } };
@@ -1483,10 +1712,47 @@ function SettingsView({ categories, metalConfig, metalCategoryMap, metalRates, t
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-200 bg-red-50"><h3 className="text-lg font-bold text-red-800">Critical: Live Pricing & Tax Rates</h3><p className="text-sm text-red-600">Used for POS calculations.</p></div>
                 <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div className="space-y-4"><h4 className="font-semibold text-gray-700 border-b pb-2">Metal Rates (per Gram in $)</h4>{Object.keys(localMetalRates).map(metal => (<div key={metal} className="flex justify-between items-center gap-4"><label className="text-sm font-medium w-24">{metal}:</label><div className="flex flex-1 items-center border border-gray-300 rounded-lg shadow-sm"><span className="bg-gray-50 p-2 rounded-l-lg border-r text-gray-500">$</span><input type="number" value={localMetalRates[metal] || ''} onChange={(e) => handleMetalRateChange(metal, e.target.value)} step="0.01" className="w-full px-2 py-2 focus:outline-none focus:ring-0 rounded-r-lg" /></div></div>))}</div>
-                    <div className="space-y-4"><h4 className="font-semibold text-gray-700 border-b pb-2">Sales Tax / GST Rate</h4><div className="flex items-center gap-4"><label className="text-sm font-medium w-28">Tax Rate:</label><div className="flex flex-1 items-center border border-gray-300 rounded-lg shadow-sm"><input type="number" value={localTaxRate} onChange={handleTaxRateChange} step="0.1" min="0" max="100" className="w-full px-2 py-2 focus:outline-none focus:ring-0 rounded-l-lg" /><span className="bg-gray-50 p-2 rounded-r-lg border-l text-gray-500">%</span></div></div>
-                    {/* Making Charges Changes pending */}
-                    <div className="space-y-4"><h4 className="font-semibold text-gray-700 border-b pb-2">Making Charges</h4><div className="flex items-center gap-4"><label className="text-sm font-medium w-28">Making Charges:</label><div className="flex flex-1 items-center border border-gray-300 rounded-lg shadow-sm"><input type="number" value={localTaxRate} onChange={handleTaxRateChange} step="0.1" min="0" max="100" className="w-full px-2 py-2 focus:outline-none focus:ring-0 rounded-l-lg" /><span className="bg-gray-50 p-2 rounded-r-lg border-l text-gray-500">%</span></div></div> </div>
+                    <div className="space-y-4">
+                        <h4 className="font-semibold text-gray-700 border-b pb-2">Metal Rates (per Gram in $)</h4>
+                        {Object.keys(localMetalRates).map(metal => (
+                            <div key={metal} className="flex justify-between items-center gap-4">
+                                <label className="text-sm font-medium w-24">{metal}:</label>
+                                <div className="flex flex-1 items-center border border-gray-300 rounded-lg shadow-sm">
+                                    <span className="bg-gray-50 p-2 rounded-l-lg border-r text-gray-500">$</span>
+                                    <input type="number" value={localMetalRates[metal] || ''} onChange={(e) => handleMetalRateChange(metal, e.target.value)} step="0.01" className="w-full px-2 py-2 focus:outline-none focus:ring-0 rounded-r-lg" />
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="space-y-4">
+                        <h4 className="font-semibold text-gray-700 border-b pb-2">Sales Tax / GST Rate</h4>
+                        <div className="flex items-center gap-4">
+                            <label className="text-sm font-medium w-28">Tax Rate:</label>
+                            <div className="flex flex-1 items-center border border-gray-300 rounded-lg shadow-sm">
+                                <input type="number" value={localTaxRate} onChange={handleTaxRateChange} step="0.1" min="0" max="100" className="w-full px-2 py-2 focus:outline-none focus:ring-0 rounded-l-lg" />
+                                <span className="bg-gray-50 p-2 rounded-r-lg border-l text-gray-500">%</span>
+                            </div>
+                        </div>
+                        {/* START CODE MERGE - STEP 4 (Making Charges per Metal input fields) */}
+                        <div className="space-y-4">
+                            <h4 className="font-semibold text-gray-700 border-b pb-2 pt-2">Making Charges (per Gram in $)</h4>
+                            {Object.keys(localMakingChargesPerMetal).map(metal => (
+                                <div key={`mc-${metal}`} className="flex justify-between items-center gap-4">
+                                    <label className="text-sm font-medium w-24">{metal}:</label>
+                                    <div className="flex flex-1 items-center border border-gray-300 rounded-lg shadow-sm">
+                                        <span className="bg-gray-50 p-2 rounded-l-lg border-r text-gray-500">$</span>
+                                        <input 
+                                            type="number" 
+                                            value={localMakingChargesPerMetal[metal] || 0} 
+                                            onChange={(e) => handleUpdateMC(metal, e.target.value)} 
+                                            step="0.01" 
+                                            className="w-full px-2 py-2 focus:outline-none focus:ring-0 rounded-r-lg" 
+                                        />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        {/* END CODE MERGE */}
                     </div>
                     
                 </div>
